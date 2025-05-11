@@ -806,6 +806,7 @@ impl PlayerCharacter {
     // Positive values rotate to the right (clockwise looking down).
     fn rotate(&mut self, by: f32) {
         self.facing_rad += by * 0.005;
+        log::info!("{}", self.facing_rad);
     }
     fn facing_vec2_normalized(&self) -> Vec2 {
         let x = self.facing_rad.cos();
@@ -1121,6 +1122,7 @@ impl State {
             position = test_position;
         }
         self.player.position = position;
+        log::info!("{:?}", position);
     }
 
     fn all_enemy_positions(&self) -> impl Iterator<Item = Vec2> {
@@ -1251,7 +1253,7 @@ impl State {
     }
 
     fn reset(&mut self) {
-        let mut seed_rng = rand::rng();
+        let mut seed_rng = StdRng::seed_from_u64(0);
         let seed = seed_rng.random();
         log::info!("seed: {:?}", seed);
         let mut rng = StdRng::from_seed(seed);
@@ -1281,7 +1283,9 @@ impl State {
         self.num_artifacts_collected = 0;
         self.seen_walls.clear();
         let position = Vec2::new(32.60643, 41.605396);
+        let position = Vec2::new(44.55908, 38.7784);
         let facing_rad = 0.7207975;
+        let facing_rad = 1.0307969;
         //let facing_rad = -90f32.to_radians();
         self.paused = false;
         self.player = PlayerCharacter {
@@ -1324,6 +1328,7 @@ impl State {
     }
 
     fn spawn_enemies(&mut self, typ: ObjectType, quantity: usize) {
+        return;
         for _ in 0..quantity {
             if let Some(position) = self.enemy_candidates.pop() {
                 if position.distance(self.player.position) > 2. {
@@ -1334,6 +1339,7 @@ impl State {
     }
 
     fn spawn_items(&mut self, typ: ObjectType, quantity: usize) {
+        return;
         for _ in 0..quantity {
             if let Some(position) = self.item_candidates.pop() {
                 self.objects.push(Object { typ, position });
@@ -1876,6 +1882,58 @@ fn debug_render_map2_pruned(state: Res<State>, mut gizmos: Gizmos) {
     );
 }
 
+#[allow(unused)]
+fn debug_render_map2_pruned_(state: Res<State>, mut gizmos: Gizmos) {
+    let eps = 0.0001;
+    let pruned_walls = state.prune_geometry();
+    let all_walls = pruned_walls
+        .iter()
+        .flat_map(|linestrip| seg2s_from_linestrip(linestrip))
+        .collect::<Vec<_>>();
+    let connected_points = pruned_walls
+        .iter()
+        .flat_map(|linestrip| ConnectedPoint::vec_from_linestrip(linestrip))
+        .collect::<Vec<_>>();
+    let visible_connected_points = connected_points
+        .iter()
+        .filter(|cp| {
+            let ray_from_eye = Seg2::new(Vec2::ZERO, cp.point);
+            !all_walls
+                .iter()
+                .filter(|wall| {
+                    // Prevent the ray from being tested for intersections with the walls that its vertex
+                    // is part of.
+                    !(wall.start == cp.point || wall.end == cp.point)
+                })
+                .any(|wall| ray_from_eye.intersect(&wall.grow(eps)).is_some())
+        })
+        .collect::<Vec<_>>();
+
+    let wall_length = 20.;
+    let offset = TOP_LEFT_OFFSET + Vec2::new(300., -540.);
+    let transform = |v| v * wall_length + offset;
+    for wall_strip in pruned_walls {
+        gizmos.linestrip_2d(
+            wall_strip.iter().cloned().map(transform),
+            Color::srgb(1., 1., 0.),
+        );
+        for v in wall_strip {
+            if v.y >= 0. {
+                // gizmos.circle_2d(transform(v), 1., Color::srgb(0., 1., 1.));
+            }
+        }
+    }
+    for p in visible_connected_points {
+        gizmos.circle_2d(transform(p.point), 4., Color::srgb(0., 1., 1.));
+    }
+    /*
+    gizmos.linestrip_2d(
+        vec![transform(Vec2::ZERO), transform(Vec2::new(0., 5.))],
+        Color::srgb(1., 0., 0.),
+    );*/
+    gizmos.circle_2d(transform(Vec2::new(0., 0.)), 4., Color::srgb(1., 0., 0.));
+}
+
 fn seg2s_from_linestrip(linestrip: &[Vec2]) -> Vec<Seg2> {
     linestrip
         .windows(2)
@@ -1959,13 +2017,14 @@ fn project_through_objects(
 
 #[allow(unused)]
 fn debug_render_map2_3d(state: Res<State>, mut gizmos: Gizmos) {
+    /*
     let RenderedScene { world, objects } = state.render();
     for RenderedWorldSeg {
         projected_seg: Seg2 { start, end },
         ..
     } in world
     {
-        gizmos.line_2d(start, end, Color::srgb(0., 0., 1.));
+        gizmos.line_2d(start, end, Color::srgb(1., 1., 1.));
     }
     for RenderedObject {
         typ: _,
@@ -1990,19 +2049,19 @@ fn debug_render_map2_3d(state: Res<State>, mut gizmos: Gizmos) {
             Vec2::new(mid, -height),
             Color::srgb(0., 1., 1.),
         );
-    }
+    }*/
+    let wall_length = 20.;
+    let offset = TOP_LEFT_OFFSET + Vec2::new(300., -540.);
+    let transform = |v| (v * wall_length + offset);
     let pruned_walls = state.prune_geometry();
     let all_walls = pruned_walls
         .iter()
         .flat_map(|linestrip| seg2s_from_linestrip(linestrip))
         .collect::<Vec<_>>();
     for Seg2 { start, end } in all_walls {
-        gizmos.line_2d(
-            start.map(|v| v * 20.),
-            end.map(|v| v * 20.),
-            Color::srgb(1., 1., 0.),
-        );
+        gizmos.line_2d(transform(start), transform(end), Color::srgb(1., 1., 0.));
     }
+    gizmos.circle_2d(transform(Vec2::new(0., 0.)), 2., Color::srgb(1., 0., 0.));
 }
 
 #[allow(unused)]
@@ -2121,16 +2180,16 @@ fn main() {
             (
                 //debug_render_map1,
                 //debug_render_map2,
-                // debug_render_map2_pruned,
+                debug_render_map2_pruned_,
                 //debug_render_map2_3d,
                 //debug_update,
                 grab_mouse,
-                input_update,
+                //input_update,
                 enemy_update,
                 passives_update,
                 update_general,
                 caw_tick,
-                render_scope,
+                //render_scope,
             ),
         )
         .run();
